@@ -1,0 +1,19 @@
+- hosts: all
+  become: true
+  gather_facts: false
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d') }}"
+  tasks:
+    # Gather stale backups
+    - name: Check for backups
+      ansible.builtin.find:
+        use_regex: true
+        path: "<PATH>"
+        file_type: file
+        patterns: "<REGEX>"
+      register: old_backups
+    - name: Delete old backups
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      with_items: "{{ old_backups.files }}"
