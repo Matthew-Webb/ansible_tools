@@ -1,0 +1,24 @@
+- name: Remove expiring passwords
+  hosts: all
+  become: true
+  gather_facts: false
+
+# chage -I -1 -m -1 -M -1 -E -1 -W -1 <User_name>
+
+  tasks:
+    - name: Get all local users with a shell
+      ansible.builtin.shell: "cat /etc/passwd | grep bash | grep -v root | awk -F: '{print $1}'"
+      register: local_users
+
+    - name: Set maximum expiration date for password to 99999
+      ansible.builtin.user:
+        name: "{{ item }}"
+        password_expire_max: 99999
+      loop: "{{local_users['stdout_lines']}}"
+
+    - name: Modify
+      ansible.builtin.lineinfile:
+        dest: /etc/login.defs
+        regexp: '^[#]?[\s+]?PASS_MAX_DAYS\s+\d+'
+        line: "PASS_MAX_DAYS   99999"
+        backup: true
