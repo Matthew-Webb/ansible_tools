@@ -1,0 +1,50 @@
+---
+- hosts: all
+  become: true
+  gather_facts: true
+  tasks:
+
+# Current Processes
+    - name: Gather ps output
+      ansible.builtin.shell:
+        cmd: ps -aux >> /tmp/ps.aux
+
+# Fetch file
+    - name: Log pre results
+      ansible.builtin.fetch:
+        src: /tmp/ps.aux
+        dest: ./processes/{{ inventory_hostname}}.pre_reboot
+        flat: yes
+
+# Reboot machine
+    - name: Reboot machine, wait max 20 mins to come back online
+      ansible.builtin.reboot:
+        reboot_command: systemctl reboot --no-wall now
+
+# Delete ps.aux
+    - name: Remove /tmp/ps.aux
+      ansible.builtin.file:
+        path: /tmp/ps.aux
+        state: absent
+
+# Gather running services
+    - name: Gather ps output
+      ansible.builtin.shell:
+        cmd: ps -aux >> /tmp/ps.aux
+
+# Fetch file
+    - name: Log post results
+      ansible.builtin.fetch:
+        src: /tmp/ps.aux
+        dest: ./processes/{{ inventory_hostname}}.post_reboot
+        flat: yes
+
+# Delete ps.aux
+    - name: I was never here
+      ansible.builtin.file:
+        path: /tmp/ps.aux
+        state: absent
+
+# Ensure hosts are live
+    - name: Host check - Ping
+      ansible.builtin.ping:
