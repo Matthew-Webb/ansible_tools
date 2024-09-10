@@ -1,0 +1,59 @@
+---
+- hosts: wls
+  become: true
+  gather_facts: false
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+  tasks:
+    - name: Check .patch_storage file exists
+      ansible.builtin.stat:
+        path: {{ ORACLE_HOME }}/.patch_storage
+      register: patchstorage
+
+    - name: Create patchstorage.tar.gz
+      community.general.archive:
+        path: {{ ORACLE_HOME }}/.patch_storage
+        dest: "{{ ORACLE_HOME }}/{{timestamp}}_patch_storage.tar.gz"
+        format: gz
+      when: patchstorage.stat.exists
+      notify: delete_patchstorage
+
+    - name: Check PATCH_TOP directory exists
+      ansible.builtin.stat:
+        path: {{ ORACLE_HOME }}/OPatch/PATCH_TOP
+      register: patchtop
+
+    - name: When PATCH_TOP exists
+      block:
+        - name: Locate staging patch .zips
+          ansible.builtin.find:
+            paths: {{ ORACLE_HOME }}/OPatch/PATCH_TOP
+            use_regex: true
+            patterns: ".*zip"
+          register: patchtop_zip_files
+
+        - name: Remove staging patch .zips
+          ansible.builtin.file:
+            path: "{{ item.path }}"
+            state: absent
+          with_items: "{{ patchtop_zip_files.files }}"
+          when: patchtop_zip_files is defined
+
+        - name: Create patch_top.tar.gz
+          community.general.archive:
+            path: {{ ORACLE_HOME }}/OPatch/PATCH_TOP
+            dest: "{{ ORACLE_HOME }}/{{timestamp}}_patch_top.tar.gz"
+            format: gz
+          notify: delete_patchtop
+      when: patchtop.stat.exists
+
+  handlers:
+    - name: delete_patchstorage
+      ansible.builtin.file:
+        state: absent
+        path: {{ ORACLE_HOME }}/.patch_storage
+
+    - name: delete_patchtop
+      ansible.builtin.file:
+        state: absent
+        path: {{ ORACLE_HOME }}/OPatch/PATCH_TOP
