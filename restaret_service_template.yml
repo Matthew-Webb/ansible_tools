@@ -1,0 +1,8 @@
+- hosts: all
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Restart service
+      ansible.builtin.service:
+        name: <SERVICE_NAME>
+        state: restarted
