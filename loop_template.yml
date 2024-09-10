@@ -1,0 +1,32 @@
+- hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    block:
+      - name: Edit .curlrc
+        ansible.builtin.lineinfile:
+          regexp: "{{ item.regexp}}"
+          line: "{{ item.line }}"
+          path: "{{ app_user_home }}/.curlrc"
+          state: present
+          owner: "{{ item }}"
+          group: "{{ app_user_group }}"
+          mode: 0644
+        loop:
+          - { regexp: 'insecure', line: 'insecure'}
+          - { regexp: 'user', line: 'user USER_NAME:PASSWORD'}
+
+      - name: Edit .wgetrc
+        ansible.builtin.lineinfile:
+          regexp: "{{ item.regexp}}"
+          line: "{{ item.line }}"
+          path: "{{ app_user_home }}/.wgetrc"
+          state: present
+          owner: "{{ app_user }}"
+          group: "{{ app_user_group }}"
+          mode: 0644
+        loop:
+          - { regexp: 'user', line: 'user=USER_NAME'}
+          - { regexp: 'password', line: 'password=PASSWORD'}
+    with_items:
+      - "{{ app_user }}"
