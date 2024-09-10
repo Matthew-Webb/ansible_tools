@@ -1,0 +1,20 @@
+- hosts: all
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Check for /bin/monitoring
+      ansible.builtin.stat:
+        path: /bin/monitoring
+      register: path
+    - name: ls monitoring
+      block:
+        - name: Find files
+          ansible.builtin.find:
+            path: "{{ path.stat.path }}"
+            file_type: file
+          register: files
+        - name: Print paths
+          ansible.builtin.debug:
+            msg: "{{ item }}.path"
+          with_items: "{{ files.files }}"
+      when: path.stat.exists
