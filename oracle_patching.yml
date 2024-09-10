@@ -1,0 +1,146 @@
+---
+- hosts: oracle
+  become: yes
+  gather_facts: no
+  vars:
+    timestamp: "{{ lookup('pipe', 'date +%Y%m%d-%H%M') }}"
+    provided_lspatches: "{{ lookup('ansible.builtin.file', './provided.txt') }}"
+  pre_tasks:
+    - name: Cr file
+      block:
+        - name: Touch file
+          ansible.builtin.file:
+            path: "./oracle_{{ timestamp }}.md"
+            state: touch
+          register: log_path # log_path.dest
+        - name: Add lines
+          ansible.builtin.lineinfile:
+            path: "{{ log_path.dest }}"
+            line: "{{ item }}"
+          with_items:
+            - "# OPatch version"
+            - "# OpenJDK version"
+            - "# Java version"
+            - "# Host partition"
+            - "# Host memory"
+            - "# OPatch lspatches"
+            - "# Patch mismatch"
+        - name: stat provided patchlist
+          ansible.builtin.stat:
+            path: ./provided.txt
+          register: st
+        - name: Precheck for patchlist
+          ansible.builtin.fail:
+            msg: "./provided.txt must be included. This is a sorted list of the patches provided in the MOP"
+          when: not st.stat.exists
+      delegate_to: localhost
+      run_once: true
+
+  tasks:
+# OPATCH VERSION
+    - name: Gather opatch version
+      ansible.builtin.shell:
+        cmd: {{ ORACLE_HOME }}/OPatch/opatch version | grep Version | awk -F ' ' '{print $3}'
+      register: opatch_version
+# OPATCH lspatches
+    - name: List patches for active WLS hosts
+      block:
+        - name: opatch lspatches
+          ansible.builtin.shell:
+            cmd: {{ ORACLE_HOME }}/OPatch/opatch lspatches | grep -v succeeded | sed '/^$/d' | sort >> {{ ORACLE_HOME }}/lspatch.txt
+          become_user: "{{ app_user }}"
+        - name: Register lspatches output for logging
+          ansible.builtin.shell:
+            cmd: cat {{ ORACLE_HOME }}/lspatch.txt
+          register: lspatches
+        - name: Copy provided contents for comparison
+          ansible.builtin.copy:
+            content: "{{ provided_lspatches }}"
+            dest: {{ ORACLE_HOME }}/provided.txt
+        - name: Failed means the files are different, playbook will continue.
+          ansible.builtin.shell:
+            cmd: diff -Z {{ ORACLE_HOME }}/lspatch.txt {{ ORACLE_HOME }}/provided.txt
+          register: lspatches_diff
+          ignore_errors: true
+        - name: Host cleanup
+          ansible.builtin.file:
+            state: absent
+            path: "{{ item }}"
+          with_items:
+            - {{ ORACLE_HOME }}/lspatch.txt
+            - {{ ORACLE_HOME }}/provided.txt
+# OPENJDK
+    - name: check for openjdk
+      ansible.builtin.stat:
+        path: {{ JAVA_HOME }}/openjdk/bin/java
+      register: openjdk_path
+    - name: Check openjdk version
+      ansible.builtin.shell:
+        cmd: {{ JAVA_HOME }}/openjdk/bin/java -version 2>&1 | grep version | awk -F '"' '{print $2}'
+      when: openjdk_path.stat.exists
+      register: openjdk_version
+# JAVA
+    - name: check for java
+      ansible.builtin.stat:
+        path: {{ JAVA_HOME }}/default/bin/java
+      register: java_path
+    - name: Check java version
+      ansible.builtin.shell:
+        cmd: {{ JAVA_HOME }}/default/bin/java -version 2>&1 | grep version | awk -F '"' '{print $2}'
+      when: java_path.stat.exists
+      register: java_version
+# HOST DRIVE SPACE
+    - name: Check space on host partition
+      ansible.builtin.shell:
+        cmd: df -h /charter
+      register: df
+# HOST AVAILABLE MEMORY
+    - name: Check available memory
+      ansible.builtin.shell:
+        cmd: free -h
+      register: free
+
+
+# BUILDING LOG FILE
+    - name: Log results
+      block:
+      - name: Log OPatch version
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "{{ inventory_hostname }}: {{ opatch_version.stdout }}"
+          insertafter: "OPatch version"
+      - name: log openjdk version
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "{{ inventory_hostname }}: {{ openjdk_version.stdout }}"
+          insertafter: "OpenJDK version"
+        when: openjdk_path.stat.exists
+      - name: Log java version
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "{{ inventory_hostname }}: {{ java_version.stdout }}"
+          insertafter: "Java version"
+        when: java_path.stat.exists
+      - name: Log OPatch lspatches
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "## {{ inventory_hostname }}\n{{ lspatches.stdout }}\n---"
+          insertafter: "OPatch lspatches"
+        when: lspatches.skipped is not defined
+      - name: Log space on partition
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "## {{ inventory_hostname }}\n{{ df.stdout }}\n---"
+          insertafter: "partition"
+      - name: Log memory on host
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "## {{ inventory_hostname }}\n{{ free.stdout }}\n---"
+          insertafter: "memory"
+      - name: Log patch mismatches
+        ansible.builtin.lineinfile:
+          path: "{{ log_path.dest }}"
+          line: "## {{ inventory_hostname }}\n{{ lspatches_diff.stdout }}\n---"
+          insertafter: "mismatch"
+        when: (lspatches.skipped is not defined) and (lspatches_diff.rc != 0)
+      delegate_to: localhost
